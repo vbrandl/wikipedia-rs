@@ -39,9 +39,6 @@ pub enum Error {
     /// Some error communicating with the server
     #[error("HTTP Error")]
     HTTPError(#[from] Box<dyn std::error::Error>),
-    /// Bad HTTP status
-    #[error("Bad HTTP status")]
-    BadStatus,
     /// Error reading response
     #[error("IO Error: {0}")]
     IOError(#[from] io::Error),
