@@ -16,9 +16,10 @@ extern crate thiserror;
 #[cfg(feature = "http-client")]
 extern crate url;
 
-use std::cmp::PartialEq;
 use std::io;
+use std::ops::Deref;
 use std::result;
+use std::{cmp::PartialEq, ops::DerefMut};
 
 pub mod http;
 pub mod iter;
@@ -55,10 +56,8 @@ pub enum Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
-#[derive(Debug)]
-pub struct Wikipedia<A: http::HttpClient> {
-    /// HttpClient struct.
-    pub client: A,
+#[derive(Clone, Debug)]
+pub struct WikipediaOptions {
     /// Url is created by concatenating `pre_language_url` + `language` + `post_language_url`.
     pub pre_language_url: String,
     pub post_language_url: String,
@@ -75,9 +74,70 @@ pub struct Wikipedia<A: http::HttpClient> {
     pub categories_results: String,
 }
 
+impl Default for WikipediaOptions {
+    fn default() -> Self {
+        Self {
+            pre_language_url: "https://".to_owned(),
+            post_language_url: ".wikipedia.org/w/api.php".to_owned(),
+            language: "en".to_owned(),
+            search_results: 10,
+            images_results: "max".to_owned(),
+            links_results: "max".to_owned(),
+            categories_results: "max".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Wikipedia<A: http::HttpClient> {
+    /// HttpClient struct.
+    pub client: A,
+    pub options: WikipediaOptions,
+}
+
+impl<A: http::HttpClient> Deref for Wikipedia<A> {
+    type Target = WikipediaOptions;
+
+    fn deref(&self) -> &Self::Target {
+        &self.options
+    }
+}
+
+impl<A: http::HttpClient> DerefMut for Wikipedia<A> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.options
+    }
+}
+
 impl<A: http::HttpClient + Default> Default for Wikipedia<A> {
     fn default() -> Self {
         Wikipedia::new(A::default())
+    }
+}
+
+impl WikipediaOptions {
+    /// Returns the api url
+    pub fn base_url(&self) -> String {
+        format!(
+            "{}{}{}",
+            self.pre_language_url, self.language, self.post_language_url
+        )
+    }
+
+    /// Updates the url format. The substring `{language}` will be replaced
+    /// with the selected language.
+    pub fn set_base_url(&mut self, base_url: &str) {
+        let index = match base_url.find(LANGUAGE_URL_MARKER) {
+            Some(i) => i,
+            None => {
+                self.pre_language_url = base_url.to_owned();
+                self.language = String::new();
+                self.post_language_url = String::new();
+                return;
+            }
+        };
+        self.pre_language_url = base_url[0..index].to_owned();
+        self.post_language_url = base_url[index + LANGUAGE_URL_MARKER.len()..].to_owned();
     }
 }
 
@@ -85,13 +145,7 @@ impl<A: http::HttpClient + Clone> Clone for Wikipedia<A> {
     fn clone(&self) -> Self {
         Wikipedia {
             client: self.client.clone(),
-            pre_language_url: self.pre_language_url.clone(),
-            post_language_url: self.post_language_url.clone(),
-            language: self.language.clone(),
-            search_results: self.search_results,
-            images_results: self.images_results.clone(),
-            links_results: self.links_results.clone(),
-            categories_results: self.categories_results.clone(),
+            options: self.options.clone(),
         }
     }
 }
@@ -101,13 +155,7 @@ impl<A: http::HttpClient> Wikipedia<A> {
     pub fn new(client: A) -> Self {
         Wikipedia {
             client,
-            pre_language_url: "https://".to_owned(),
-            post_language_url: ".wikipedia.org/w/api.php".to_owned(),
-            language: "en".to_owned(),
-            search_results: 10,
-            images_results: "max".to_owned(),
-            links_results: "max".to_owned(),
-            categories_results: "max".to_owned(),
+            options: WikipediaOptions::default(),
         }
     }
 
@@ -153,30 +201,6 @@ impl<A: http::HttpClient> Wikipedia<A> {
                 ))
             })
             .collect())
-    }
-
-    /// Returns the api url
-    pub fn base_url(&self) -> String {
-        format!(
-            "{}{}{}",
-            self.pre_language_url, self.language, self.post_language_url
-        )
-    }
-
-    /// Updates the url format. The substring `{language}` will be replaced
-    /// with the selected language.
-    pub fn set_base_url(&mut self, base_url: &str) {
-        let index = match base_url.find(LANGUAGE_URL_MARKER) {
-            Some(i) => i,
-            None => {
-                self.pre_language_url = base_url.to_owned();
-                self.language = String::new();
-                self.post_language_url = String::new();
-                return;
-            }
-        };
-        self.pre_language_url = base_url[0..index].to_owned();
-        self.post_language_url = base_url[index + LANGUAGE_URL_MARKER.len()..].to_owned();
     }
 
     fn query<'a, I>(&self, args: I) -> Result<serde_json::Value>

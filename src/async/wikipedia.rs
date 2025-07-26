@@ -1,23 +1,26 @@
-use crate::{r#async::AsyncHttpClient, Error, Result, LANGUAGE_URL_MARKER};
+use std::ops::{Deref, DerefMut};
+
+use crate::{r#async::AsyncHttpClient, Error, Result, WikipediaOptions};
 
 #[derive(Debug)]
 pub struct Wikipedia<A: AsyncHttpClient> {
     /// HttpClient struct.
     pub client: A,
-    /// Url is created by concatenating `pre_language_url` + `language` + `post_language_url`.
-    pub pre_language_url: String,
-    pub post_language_url: String,
-    pub language: String,
-    /// Number of results to fetch when searching.
-    pub search_results: u32,
-    /// Number of images to fetch in each request when calling `get_images`.
-    /// The iterator will go through all of them, fetching pages of this size.
-    /// It can be the string "max" to fetch as many as possible on every request.
-    pub images_results: String,
-    /// Like `images_results`, for links and references.
-    pub links_results: String,
-    /// Like `images_results`, for categories.
-    pub categories_results: String,
+    pub options: WikipediaOptions,
+}
+
+impl<A: AsyncHttpClient> Deref for Wikipedia<A> {
+    type Target = WikipediaOptions;
+
+    fn deref(&self) -> &Self::Target {
+        &self.options
+    }
+}
+
+impl<A: AsyncHttpClient> DerefMut for Wikipedia<A> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.options
+    }
 }
 
 impl<A: AsyncHttpClient + Default> Default for Wikipedia<A> {
@@ -31,13 +34,7 @@ impl<'a, A: AsyncHttpClient + 'a> Wikipedia<A> {
     pub fn new(client: A) -> Self {
         Wikipedia {
             client,
-            pre_language_url: "https://".to_owned(),
-            post_language_url: ".wikipedia.org/w/api.php".to_owned(),
-            language: "en".to_owned(),
-            search_results: 10,
-            images_results: "max".to_owned(),
-            links_results: "max".to_owned(),
-            categories_results: "max".to_owned(),
+            options: WikipediaOptions::default(),
         }
     }
 
@@ -83,30 +80,6 @@ impl<'a, A: AsyncHttpClient + 'a> Wikipedia<A> {
                 ))
             })
             .collect())
-    }
-
-    /// Returns the api url
-    pub fn base_url(&self) -> String {
-        format!(
-            "{}{}{}",
-            self.pre_language_url, self.language, self.post_language_url
-        )
-    }
-
-    /// Updates the url format. The substring `{language}` will be replaced
-    /// with the selected language.
-    pub fn set_base_url(&mut self, base_url: &str) {
-        let index = match base_url.find(LANGUAGE_URL_MARKER) {
-            Some(i) => i,
-            None => {
-                self.pre_language_url = base_url.to_owned();
-                self.language = "".to_owned();
-                self.post_language_url = "".to_owned();
-                return;
-            }
-        };
-        self.pre_language_url = base_url[0..index].to_owned();
-        self.post_language_url = base_url[index + LANGUAGE_URL_MARKER.len()..].to_owned();
     }
 
     async fn query<F, I, S>(&'a self, args: F) -> Result<serde_json::Value>
